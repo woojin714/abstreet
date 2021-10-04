@@ -19,7 +19,7 @@ use crate::{Color, EventCtx, GeomBatch, GfxCtx, MultiKey, RewriteColor, Text};
 /// objects can be drawn, hovered on, clicked, dragged, etc.
 pub struct World<ID: ObjectID> {
     // TODO Hashing may be too slow in some cases
-    objects: HashMap<ID, Object<ID>>,
+    objects: HashMap<ID, Object>,
     quadtree: QuadTree<ID>,
 
     draw_master_batches: Vec<ToggleZoomed>,
@@ -46,6 +46,9 @@ pub enum WorldOutcome<ID: ObjectID> {
     Keypress(&'static str, ID),
     /// A hoverable object was clicked
     ClickedObject(ID),
+    /// The object being hovered on changed from (something before, to something after). Note this
+    /// transition may also occur outside of `event` -- such as during `delete` or `initialize_hover`.
+    HoverChanged(Option<ID>, Option<ID>),
     /// Nothing interesting happened
     Nothing,
 }
@@ -70,6 +73,9 @@ impl<I: ObjectID> WorldOutcome<I> {
             },
             WorldOutcome::Keypress(action, id) => WorldOutcome::Keypress(action, f(id)),
             WorldOutcome::ClickedObject(id) => WorldOutcome::ClickedObject(f(id)),
+            WorldOutcome::HoverChanged(before, after) => {
+                WorldOutcome::HoverChanged(before.map(&f), after.map(f))
+            }
             WorldOutcome::Nothing => WorldOutcome::Nothing,
         }
     }
@@ -199,7 +205,7 @@ impl<'a, ID: ObjectID> ObjectBuilder<'a, ID> {
     }
 
     /// Finalize the object, adding it to the `World`.
-    pub fn build(mut self, ctx: &mut EventCtx) {
+    pub fn build(mut self, ctx: &EventCtx) {
         let hitbox = self.hitbox.take().expect("didn't specify hitbox");
         let bounds = hitbox.get_bounds();
         let quadtree_id = self
@@ -210,8 +216,7 @@ impl<'a, ID: ObjectID> ObjectBuilder<'a, ID> {
         self.world.objects.insert(
             self.id,
             Object {
-                _id: self.id,
-                _quadtree_id: quadtree_id,
+                quadtree_id,
                 hitbox,
                 zorder: self.zorder,
                 draw_normal: self
@@ -228,9 +233,8 @@ impl<'a, ID: ObjectID> ObjectBuilder<'a, ID> {
     }
 }
 
-struct Object<ID: ObjectID> {
-    _id: ID,
-    _quadtree_id: ItemId,
+struct Object {
+    quadtree_id: ItemId,
     hitbox: Polygon,
     zorder: usize,
     draw_normal: ToggleZoomed,
@@ -322,6 +326,32 @@ impl<ID: ObjectID> World<ID> {
         self.draw_master_batches.push(draw.into().build(ctx));
     }
 
+    /// Delete an object. Not idempotent -- this will panic if the object doesn't exist. Will panic
+    /// if the object is deleted in the middle of being dragged.
+    pub fn delete(&mut self, id: ID) {
+        if self.hovering == Some(id) {
+            self.hovering = None;
+            if self.dragging_from.is_some() {
+                panic!("Can't delete {:?} mid-drag", id);
+            }
+        }
+
+        self.delete_before_replacement(id);
+    }
+
+    /// Delete an object, with the promise to recreate it with the same ID before the next call to `event`. This may be called while the object is being hovered on or dragged.
+    pub fn delete_before_replacement(&mut self, id: ID) {
+        if let Some(obj) = self.objects.remove(&id) {
+            if self.quadtree.remove(obj.quadtree_id).is_none() {
+                // This can happen for objects that're out-of-bounds. One example is intersections
+                // in map_editor.
+                warn!("{:?} wasn't in the quadtree", id);
+            }
+        } else {
+            panic!("Can't delete {:?}; it's not in the World", id);
+        }
+    }
+
     /// Let objects in the world respond to something happening.
     pub fn event(&mut self, ctx: &mut EventCtx) -> WorldOutcome<ID> {
         if let Some((drag_from, moved)) = self.dragging_from {
@@ -333,11 +363,16 @@ impl<ID: ObjectID> World<ID> {
                     return WorldOutcome::ClickedObject(self.hovering.unwrap());
                 }
 
+                let before = self.hovering;
                 self.hovering = ctx
                     .canvas
                     .get_cursor_in_map_space()
                     .and_then(|cursor| self.calculate_hover(cursor));
-                return WorldOutcome::Nothing;
+                return if before == self.hovering {
+                    WorldOutcome::Nothing
+                } else {
+                    WorldOutcome::HoverChanged(before, self.hovering)
+                };
             }
             // Allow zooming, but not panning, while dragging
             if let Some((_, dy)) = ctx.input.get_mouse_scroll() {
@@ -364,13 +399,22 @@ impl<ID: ObjectID> World<ID> {
         let cursor = if let Some(pt) = ctx.canvas.get_cursor_in_map_space() {
             pt
         } else {
-            self.hovering = None;
-            return WorldOutcome::Nothing;
+            let before = self.hovering.take();
+            return if before.is_some() {
+                WorldOutcome::HoverChanged(before, None)
+            } else {
+                WorldOutcome::Nothing
+            };
         };
 
         // Possibly recalculate hovering
+        let mut neutral_outcome = WorldOutcome::Nothing;
         if ctx.redo_mouseover() {
+            let before = self.hovering;
             self.hovering = self.calculate_hover(cursor);
+            if before != self.hovering {
+                neutral_outcome = WorldOutcome::HoverChanged(before, self.hovering);
+            }
         }
 
         // If we're hovering on a draggable thing, only allow zooming, not panning
@@ -388,7 +432,7 @@ impl<ID: ObjectID> World<ID> {
                 allow_panning = false;
                 if ctx.input.left_mouse_button_pressed() {
                     self.dragging_from = Some((cursor, false));
-                    return WorldOutcome::Nothing;
+                    return neutral_outcome;
                 }
             }
 
@@ -411,7 +455,7 @@ impl<ID: ObjectID> World<ID> {
             }
         }
 
-        WorldOutcome::Nothing
+        neutral_outcome
     }
 
     fn calculate_hover(&self, cursor: Pt2D) -> Option<ID> {
@@ -466,6 +510,17 @@ impl<ID: ObjectID> World<ID> {
                 obj.draw_normal.draw(g);
             }
         }
+    }
+
+    /// Calculate the object currently underneath the cursor. This should only be used when the
+    /// `World` is not being actively updated by calling `event`. If another state temporarily
+    /// needs to disable most interactions with objects, it can poll this instead.
+    pub fn calculate_hovering(&self, ctx: &EventCtx) -> Option<ID> {
+        // TODO Seems expensive! Maybe instead set some kind of "locked" mode and disable
+        // everything except hovering?
+        ctx.canvas
+            .get_cursor_in_map_space()
+            .and_then(|cursor| self.calculate_hover(cursor))
     }
 }
 

@@ -13,7 +13,6 @@ mod app;
 mod edit;
 mod load;
 mod model;
-mod world;
 
 pub fn main() {
     let settings = Settings::new("RawMap editor");
