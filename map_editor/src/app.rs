@@ -333,10 +333,8 @@ impl State<App> for MainState {
                     }
                     WorldOutcome::Keypress("insert a new point here", ID::Road(r)) => {
                         if let Some(pt) = ctx.canvas.get_cursor_in_map_space() {
-                            if let Some(id) = app.model.insert_r_pt(ctx, r, pt) {
-                                // TODO redo hover
-                                //app.model.world.force_set_selection(id);
-                            }
+                            app.model.insert_r_pt(ctx, r, pt);
+                            // TODO redo hover
                         }
                     }
                     WorldOutcome::Keypress("remove interior points", ID::Road(r)) => {

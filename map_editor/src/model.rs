@@ -414,7 +414,12 @@ impl Model {
         self.show_r_points(ctx, id);
     }
 
-    pub fn delete_r_pt(&mut self, ctx: &EventCtx, id: OriginalRoad, idx: usize) {
+    fn change_r_points<F: FnMut(&mut Vec<Pt2D>)>(
+        &mut self,
+        ctx: &EventCtx,
+        id: OriginalRoad,
+        mut transform: F,
+    ) {
         assert_eq!(self.showing_pts, Some(id));
 
         self.stop_showing_pts(id);
@@ -425,7 +430,7 @@ impl Model {
             .delete_before_replacement(ID::Intersection(id.i2));
 
         let pts = &mut self.map.roads.get_mut(&id).unwrap().center_points;
-        pts.remove(idx);
+        transform(pts);
 
         self.road_added(ctx, id);
         self.intersection_added(ctx, id.i1);
@@ -433,54 +438,30 @@ impl Model {
         self.show_r_points(ctx, id);
     }
 
-    pub fn insert_r_pt(&mut self, ctx: &EventCtx, id: OriginalRoad, pt: Pt2D) -> Option<ID> {
-        assert_eq!(self.showing_pts, Some(id));
+    pub fn delete_r_pt(&mut self, ctx: &EventCtx, id: OriginalRoad, idx: usize) {
+        self.change_r_points(ctx, id, |pts| {
+            pts.remove(idx);
+        });
+    }
 
-        self.stop_showing_pts(id);
-        self.road_deleted(id);
-        self.world
-            .delete_before_replacement(ID::Intersection(id.i1));
-        self.world
-            .delete_before_replacement(ID::Intersection(id.i2));
-
+    pub fn insert_r_pt(&mut self, ctx: &EventCtx, id: OriginalRoad, pt: Pt2D) {
         let mut closest = FindClosest::new(&self.compute_bounds());
-        let pts = &mut self.map.roads.get_mut(&id).unwrap().center_points;
-        for (idx, pair) in pts.windows(2).enumerate() {
-            closest.add(idx + 1, &[pair[0], pair[1]]);
-        }
-        let new_id = if let Some((idx, _)) = closest.closest_pt(pt, Distance::meters(5.0)) {
-            pts.insert(idx, pt);
-            Some(ID::RoadPoint(id, idx))
-        } else {
-            error!("Couldn't figure out where to insert new point");
-            None
-        };
-
-        self.road_added(ctx, id);
-        self.intersection_added(ctx, id.i1);
-        self.intersection_added(ctx, id.i2);
-        self.show_r_points(ctx, id);
-
-        new_id
+        self.change_r_points(ctx, id, move |pts| {
+            for (idx, pair) in pts.windows(2).enumerate() {
+                closest.add(idx + 1, &[pair[0], pair[1]]);
+            }
+            if let Some((idx, _)) = closest.closest_pt(pt, Distance::meters(5.0)) {
+                pts.insert(idx, pt);
+            } else {
+                warn!("Couldn't figure out where to insert new point");
+            }
+        });
     }
 
     pub fn clear_r_pts(&mut self, ctx: &EventCtx, id: OriginalRoad) {
-        assert_eq!(self.showing_pts, Some(id));
-
-        self.stop_showing_pts(id);
-        self.road_deleted(id);
-        self.world
-            .delete_before_replacement(ID::Intersection(id.i1));
-        self.world
-            .delete_before_replacement(ID::Intersection(id.i2));
-
-        let r = &mut self.map.roads.get_mut(&id).unwrap();
-        r.center_points = vec![r.center_points[0], *r.center_points.last().unwrap()];
-
-        self.road_added(ctx, id);
-        self.intersection_added(ctx, id.i1);
-        self.intersection_added(ctx, id.i2);
-        self.show_r_points(ctx, id);
+        self.change_r_points(ctx, id, |pts| {
+            *pts = vec![pts[0], *pts.last().unwrap()];
+        });
     }
 
     // TODO Need to show_r_points of the thing we wind up selecting after this.
