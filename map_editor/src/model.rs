@@ -386,16 +386,19 @@ impl Model {
             return;
         }
         self.showing_pts = None;
-        let r = &self.map.roads[&id];
-        for idx in 1..=r.center_points.len() - 2 {
+        for idx in 1..=self.map.roads[&id].center_points.len() - 2 {
             self.world.delete(ID::RoadPoint(id, idx));
         }
     }
 
     pub fn move_r_pt(&mut self, ctx: &EventCtx, id: OriginalRoad, idx: usize, point: Pt2D) {
         assert_eq!(self.showing_pts, Some(id));
+        // stop_showing_pts deletes the points, but we want to use delete_before_replacement
+        self.showing_pts = None;
+        for idx in 1..=self.map.roads[&id].center_points.len() - 2 {
+            self.world.delete_before_replacement(ID::RoadPoint(id, idx));
+        }
 
-        self.stop_showing_pts(id);
         self.road_deleted(id);
         self.world
             .delete_before_replacement(ID::Intersection(id.i1));
