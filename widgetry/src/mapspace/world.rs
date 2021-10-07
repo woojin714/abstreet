@@ -35,7 +35,8 @@ pub enum WorldOutcome<ID: ObjectID> {
     /// A left click occurred while not hovering on any object
     ClickedFreeSpace(Pt2D),
     /// An object is being dragged. The given offsets are relative to the previous dragging event.
-    /// The current position of the cursor is included.
+    /// The current position of the cursor is included. If you're dragging a large object, applying
+    /// the offset will likely feel more natural than centering on the cursor.
     Dragging {
         obj: ID,
         dx: f64,
@@ -48,6 +49,10 @@ pub enum WorldOutcome<ID: ObjectID> {
     ClickedObject(ID),
     /// The object being hovered on changed from (something before, to something after). Note this
     /// transition may also occur outside of `event` -- such as during `delete` or `initialize_hover`.
+    ///
+    /// TODO Bug in the map_editor: If you delete one object, then the caller does initialize_hover
+    /// and we immediately wind up on another road beneath, we don't detect this and start showing
+    /// road points.
     HoverChanged(Option<ID>, Option<ID>),
     /// Nothing interesting happened
     Nothing,
@@ -297,7 +302,11 @@ impl<ID: ObjectID> World<ID> {
     }
 
     /// After adding all objects to a `World`, call this to initially detect if the cursor is
-    /// hovering on an object.
+    /// hovering on an object. This may also be called after adding or deleting objects to
+    /// immediately recalculate hover before the mouse moves.
+    // TODO Maybe we should automatically do this after mutations? Except we don't want to in the
+    // middle of a bulk operation, like initial setup or a many-step mutation. So maybe the caller
+    // really should handle it.
     pub fn initialize_hover(&mut self, ctx: &EventCtx) {
         self.hovering = ctx
             .canvas

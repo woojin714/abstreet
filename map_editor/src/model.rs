@@ -12,6 +12,7 @@ use widgetry::{Color, Drawable, EventCtx, GeomBatch, Key, Line, Text};
 const INTERSECTION_RADIUS: Distance = Distance::const_meters(2.5);
 const BUILDING_LENGTH: Distance = Distance::const_meters(30.0);
 
+// The caller should generally call world.initialize_hover after a mutation.
 pub struct Model {
     // map and world are pub. The main crate should use them directly for simple stuff, to avoid
     // boilerplate delegation methods. Complex changes should be proper methods on the model.
@@ -464,7 +465,6 @@ impl Model {
         });
     }
 
-    // TODO Need to show_r_points of the thing we wind up selecting after this.
     pub fn merge_r(&mut self, ctx: &EventCtx, id: OriginalRoad) {
         self.stop_showing_pts(id);
 
@@ -541,15 +541,11 @@ impl Model {
         ID::Building(id)
     }
 
-    pub fn move_b(&mut self, ctx: &EventCtx, id: osm::OsmID, new_center: Pt2D) {
+    pub fn move_b(&mut self, ctx: &EventCtx, id: osm::OsmID, dx: f64, dy: f64) {
         self.world.delete_before_replacement(ID::Building(id));
 
         let b = self.map.buildings.get_mut(&id).unwrap();
-        let old_center = b.polygon.center();
-        b.polygon = b.polygon.translate(
-            new_center.x() - old_center.x(),
-            new_center.y() - old_center.y(),
-        );
+        b.polygon = b.polygon.translate(dx, dy);
 
         self.bldg_added(ctx, id);
     }

@@ -274,9 +274,9 @@ impl State<App> for MainState {
                         if self.panel.is_checked("create") {
                             app.model.create_i(ctx, pt);
                         } else {
-                            // TODO Check mouseover bug here
                             app.model.create_b(ctx, pt);
                         }
+                        app.model.world.initialize_hover(ctx);
                     }
                     WorldOutcome::Dragging {
                         obj: ID::Intersection(i),
@@ -287,10 +287,11 @@ impl State<App> for MainState {
                     }
                     WorldOutcome::Dragging {
                         obj: ID::Building(b),
-                        cursor,
+                        dx,
+                        dy,
                         ..
                     } => {
-                        app.model.move_b(ctx, b, cursor);
+                        app.model.move_b(ctx, b, dx, dy);
                     }
                     WorldOutcome::Dragging {
                         obj: ID::RoadPoint(r, idx),
@@ -305,7 +306,9 @@ impl State<App> for MainState {
                         }
                         if let Some(ID::Road(r)) | Some(ID::RoadPoint(r, _)) = after {
                             app.model.show_r_points(ctx, r);
-                            app.model.world.initialize_hover(ctx);
+                            // Shouldn't need to call initialize_hover, unless the user somehow
+                            // warped their cursor to precisely the location of a point, in the
+                            // middle of the road!
                         }
 
                         self.update_instructions(ctx, after);
@@ -315,6 +318,7 @@ impl State<App> for MainState {
                     }
                     WorldOutcome::Keypress("delete", ID::Intersection(i)) => {
                         app.model.delete_i(i);
+                        app.model.world.initialize_hover(ctx);
                     }
                     WorldOutcome::Keypress(
                         "toggle stop sign / traffic signal",
@@ -327,31 +331,36 @@ impl State<App> for MainState {
                     }
                     WorldOutcome::Keypress("delete", ID::Building(b)) => {
                         app.model.delete_b(b);
+                        app.model.world.initialize_hover(ctx);
                     }
                     WorldOutcome::Keypress("delete", ID::Road(r)) => {
                         app.model.delete_r(ctx, r);
+                        // There may be something underneath the road, so recalculate immediately
+                        app.model.world.initialize_hover(ctx);
                     }
                     WorldOutcome::Keypress("insert a new point here", ID::Road(r)) => {
                         if let Some(pt) = ctx.canvas.get_cursor_in_map_space() {
                             app.model.insert_r_pt(ctx, r, pt);
-                            // TODO redo hover
+                            app.model.world.initialize_hover(ctx);
                         }
                     }
                     WorldOutcome::Keypress("remove interior points", ID::Road(r)) => {
                         app.model.clear_r_pts(ctx, r);
+                        app.model.world.initialize_hover(ctx);
+                    }
+                    WorldOutcome::Keypress("delete", ID::RoadPoint(r, idx)) => {
+                        app.model.delete_r_pt(ctx, r, idx);
+                        app.model.world.initialize_hover(ctx);
                     }
                     WorldOutcome::Keypress("merge", ID::Road(r)) => {
                         app.model.merge_r(ctx, r);
-                        // TODO mouseover
+                        app.model.world.initialize_hover(ctx);
                     }
                     WorldOutcome::Keypress("mark/unmark as a junction", ID::Road(r)) => {
                         app.model.toggle_junction(ctx, r);
                     }
                     WorldOutcome::ClickedObject(ID::Road(r)) => {
                         return Transition::Push(crate::edit::EditRoad::new_state(ctx, app, r));
-                    }
-                    WorldOutcome::Keypress("delete", ID::RoadPoint(r, idx)) => {
-                        app.model.delete_r_pt(ctx, r, idx);
                     }
                     _ => {}
                 }
