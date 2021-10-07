@@ -169,95 +169,27 @@ impl MainState {
             .aligned(HorizontalAlignment::Right, VerticalAlignment::Top)
             .build(ctx),
         };
-        state.update_instructions(ctx, None);
+        state.update_instructions(ctx, app);
         Box::new(state)
     }
 
-    fn update_instructions(&mut self, ctx: &mut EventCtx, hovering: Option<ID>) {
-        // TODO Scrape actions from World?
+    fn update_instructions(&mut self, ctx: &mut EventCtx, app: &App) {
         let mut txt = Text::new();
-        match hovering {
-            Some(ID::Intersection(_)) => {
+        if let Some(keybindings) = app.model.world.get_hovered_keybindings() {
+            // TODO Should we also say click and drag to move it? Or for clickable roads, click to
+            // edit?
+            for (key, action) in keybindings {
                 txt.add_appended(vec![
                     Line("- Press "),
-                    Key::R.txt(ctx),
-                    Line(" to start a road here"),
-                ]);
-                txt.add_appended(vec![
-                    Line("- Press "),
-                    Key::Backspace.txt(ctx),
-                    Line(" to delete"),
-                ]);
-                txt.add_appended(vec![
-                    Line("- Click and drag").fg(ctx.style().text_hotkey_color),
-                    Line(" to move"),
-                ]);
-                txt.add_appended(vec![
-                    Line("- Press "),
-                    Key::T.txt(ctx),
-                    Line(" to toggle stop sign / traffic signal"),
-                ]);
-                txt.add_appended(vec![
-                    Line("- Press "),
-                    Key::P.txt(ctx),
-                    Line(" to debug intersection geometry"),
+                    key.txt(ctx),
+                    Line(format!(" to {}", action)),
                 ]);
             }
-            Some(ID::Building(_)) => {
-                txt.add_appended(vec![
-                    Line("- Press "),
-                    Key::Backspace.txt(ctx),
-                    Line(" to delete"),
-                ]);
-                txt.add_appended(vec![
-                    Line("- Click and drag").fg(ctx.style().text_hotkey_color),
-                    Line(" to move"),
-                ]);
-            }
-            Some(ID::Road(_)) => {
-                txt.add_appended(vec![
-                    Line("Click").fg(ctx.style().text_hotkey_color),
-                    Line(" to edit lanes"),
-                ]);
-                txt.add_appended(vec![
-                    Line("- Press "),
-                    Key::Backspace.txt(ctx),
-                    Line(" to delete"),
-                ]);
-                txt.add_appended(vec![
-                    Line("- Press "),
-                    Key::P.txt(ctx),
-                    Line(" to insert a new point here"),
-                ]);
-                txt.add_appended(vec![
-                    Line("- Press "),
-                    Key::X.txt(ctx),
-                    Line(" to remove interior points"),
-                ]);
-                txt.add_appended(vec![Line("- Press "), Key::M.txt(ctx), Line(" to merge")]);
-                txt.add_appended(vec![
-                    Line("- Press "),
-                    Key::J.txt(ctx),
-                    Line(" to mark/unmark as a junction"),
-                ]);
-            }
-            Some(ID::RoadPoint(_, _)) => {
-                txt.add_appended(vec![
-                    Line("- Press "),
-                    Key::Backspace.txt(ctx),
-                    Line(" to delete"),
-                ]);
-                txt.add_appended(vec![
-                    Line("- Click and drag").fg(ctx.style().text_hotkey_color),
-                    Line(" to move"),
-                ]);
-            }
-            None => {
-                txt.add_appended(vec![
-                    Line("Click").fg(ctx.style().text_hotkey_color),
-                    Line(" to create a new intersection or building"),
-                ]);
-            }
+        } else {
+            txt.add_appended(vec![
+                Line("Click").fg(ctx.style().text_hotkey_color),
+                Line(" to create a new intersection or building"),
+            ]);
         }
         let instructions = txt.into_widget(ctx);
         self.panel.replace(ctx, "instructions", instructions);
@@ -277,6 +209,7 @@ impl State<App> for MainState {
                             app.model.create_b(ctx, pt);
                         }
                         app.model.world.initialize_hover(ctx);
+                        self.update_instructions(ctx, app);
                     }
                     WorldOutcome::Dragging {
                         obj: ID::Intersection(i),
@@ -311,7 +244,7 @@ impl State<App> for MainState {
                             // middle of the road!
                         }
 
-                        self.update_instructions(ctx, after);
+                        self.update_instructions(ctx, app);
                     }
                     WorldOutcome::Keypress("start a road here", ID::Intersection(i)) => {
                         self.mode = Mode::CreatingRoad(i);
@@ -319,6 +252,7 @@ impl State<App> for MainState {
                     WorldOutcome::Keypress("delete", ID::Intersection(i)) => {
                         app.model.delete_i(i);
                         app.model.world.initialize_hover(ctx);
+                        self.update_instructions(ctx, app);
                     }
                     WorldOutcome::Keypress(
                         "toggle stop sign / traffic signal",
@@ -332,29 +266,35 @@ impl State<App> for MainState {
                     WorldOutcome::Keypress("delete", ID::Building(b)) => {
                         app.model.delete_b(b);
                         app.model.world.initialize_hover(ctx);
+                        self.update_instructions(ctx, app);
                     }
                     WorldOutcome::Keypress("delete", ID::Road(r)) => {
                         app.model.delete_r(ctx, r);
                         // There may be something underneath the road, so recalculate immediately
                         app.model.world.initialize_hover(ctx);
+                        self.update_instructions(ctx, app);
                     }
                     WorldOutcome::Keypress("insert a new point here", ID::Road(r)) => {
                         if let Some(pt) = ctx.canvas.get_cursor_in_map_space() {
                             app.model.insert_r_pt(ctx, r, pt);
                             app.model.world.initialize_hover(ctx);
+                            self.update_instructions(ctx, app);
                         }
                     }
                     WorldOutcome::Keypress("remove interior points", ID::Road(r)) => {
                         app.model.clear_r_pts(ctx, r);
                         app.model.world.initialize_hover(ctx);
+                        self.update_instructions(ctx, app);
                     }
                     WorldOutcome::Keypress("delete", ID::RoadPoint(r, idx)) => {
                         app.model.delete_r_pt(ctx, r, idx);
                         app.model.world.initialize_hover(ctx);
+                        self.update_instructions(ctx, app);
                     }
                     WorldOutcome::Keypress("merge", ID::Road(r)) => {
                         app.model.merge_r(ctx, r);
                         app.model.world.initialize_hover(ctx);
+                        self.update_instructions(ctx, app);
                     }
                     WorldOutcome::Keypress("mark/unmark as a junction", ID::Road(r)) => {
                         app.model.toggle_junction(ctx, r);

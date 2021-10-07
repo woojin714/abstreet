@@ -531,6 +531,12 @@ impl<ID: ObjectID> World<ID> {
             .get_cursor_in_map_space()
             .and_then(|cursor| self.calculate_hover(cursor))
     }
+
+    /// If an object is currently being hovered on, return its keybindings. This should be used to
+    /// describe interactions; to detect the keypresses, listen for `WorldOutcome::Keypress`.
+    pub fn get_hovered_keybindings(&self) -> Option<&Vec<(MultiKey, &'static str)>> {
+        Some(&self.objects[&self.hovering?].keybindings)
+    }
 }
 
 /// If you don't ever need to refer to objects in a `World`, you can auto-assign dummy IDs.
