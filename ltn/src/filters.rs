@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use geom::{Circle, Distance, Line};
 use map_model::{IntersectionID, Map, RoadID, RoutingParams, TurnID};
-use widgetry::mapspace::ToggleZoomed;
+use widgetry::mapspace::{DrawUnzoomedShapes, ToggleZoomed};
 use widgetry::{Color, EventCtx, GeomBatch};
 
 use super::Neighborhood;
@@ -145,6 +145,25 @@ impl ModalFilters {
             );
         }
         batch.build(ctx)
+    }
+
+    // TODO Reconcile the two
+    pub fn draw_unzoomed(&self, map: &Map) -> DrawUnzoomedShapes {
+        let mut draw = DrawUnzoomedShapes::builder();
+        for (r, dist) in &self.roads {
+            let road = map.get_r(*r);
+            if let Ok((pt, _)) = road.center_pts.dist_along(*dist) {
+                draw.add_circle(pt, Distance::meters(7.0), Color::BLACK);
+            }
+        }
+        for (_, filter) in &self.intersections {
+            draw.add_line(
+                filter.geometry(map).to_polyline(),
+                Distance::meters(5.0),
+                Color::BLACK,
+            );
+        }
+        draw.build()
     }
 }
 

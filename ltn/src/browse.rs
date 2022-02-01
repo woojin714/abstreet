@@ -4,7 +4,7 @@ use abstutil::Timer;
 use geom::Distance;
 use map_gui::tools::{CityPicker, DrawRoadLabels, Navigator, PopupMsg, URLManager};
 use synthpop::Scenario;
-use widgetry::mapspace::{ToggleZoomed, World, WorldOutcome};
+use widgetry::mapspace::{DrawUnzoomedShapes, ToggleZoomed, World, WorldOutcome};
 use widgetry::{
     Choice, Color, DrawBaselayer, EventCtx, GfxCtx, HorizontalAlignment, Key, Line, Outcome, Panel,
     State, Text, TextExt, Toggle, VerticalAlignment, Widget,
@@ -18,6 +18,7 @@ pub struct BrowseNeighborhoods {
     world: World<NeighborhoodID>,
     labels: DrawRoadLabels,
     draw_all_filters: ToggleZoomed,
+    draw_all_filters_unzoomed: DrawUnzoomedShapes,
     draw_boundary_roads: ToggleZoomed,
 }
 
@@ -33,6 +34,7 @@ impl BrowseNeighborhoods {
             make_world(ctx, app, timer)
         });
         let draw_all_filters = app.session.modal_filters.draw(ctx, &app.map, None);
+        let draw_all_filters_unzoomed = app.session.modal_filters.draw_unzoomed(&app.map);
 
         let panel = Panel::new_builder(Widget::col(vec![
             map_gui::tools::app_header(ctx, app, "Low traffic neighborhoods"),
@@ -89,6 +91,7 @@ impl BrowseNeighborhoods {
             world,
             labels: DrawRoadLabels::only_major_roads(),
             draw_all_filters,
+            draw_all_filters_unzoomed,
             draw_boundary_roads: draw_boundary_roads(ctx, app),
         })
     }
@@ -173,9 +176,13 @@ impl State<App> for BrowseNeighborhoods {
         crate::draw_with_layering(g, app, |g| self.world.draw(g));
 
         self.panel.draw(g);
-        self.draw_all_filters.draw(g);
         if self.panel.is_checked("highlight boundary roads") {
             self.draw_boundary_roads.draw(g);
+        }
+        if g.canvas.is_unzoomed() {
+            self.draw_all_filters_unzoomed.draw(g);
+        } else {
+            self.draw_all_filters.draw(g);
         }
         if g.canvas.is_unzoomed() {
             self.labels.draw(g, app);
